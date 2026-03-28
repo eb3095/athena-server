@@ -17,7 +17,7 @@ build/
 # Testing
 test-output.wav
 *.wav
-helmd-local/
+helm-local/
 
 # AI context
 .eca/
