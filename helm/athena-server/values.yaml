@@ -46,6 +46,7 @@ resources:
 ingress:
   enabled: false
   host: ""
+  timeout: "600s"
   middlewares: []
   tls:
     enabled: false
