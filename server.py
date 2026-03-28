@@ -70,7 +70,7 @@ DEFAULT_VOICE = os.environ.get("DEFAULT_VOICE", "")
 
 DEFAULT_FORMATTING_PREPROMPT = "Format your response using markdown when appropriate. Use headers, bullet points, code blocks, and emphasis to make the response clear and readable."
 DEFAULT_PERSONALITY_PREPROMPT = "You are a helpful AI assistant."
-DEFAULT_TTS_PREPROMPT = "Respond in natural spoken text only. Do not use any markdown formatting, special characters, bullet points, numbered lists, or code blocks. Write as if speaking aloud - use complete sentences, spell out abbreviations, and describe any visual elements verbally. Do not include asterisks, hashes, backticks, or any formatting symbols."
+DEFAULT_TTS_CONVERSION_PREPROMPT = "Rewrite this as natural speech. Keep the same meaning and information but make it sound like someone talking. No markdown, no bullet points, no formatting - just flowing sentences. Never say words like 'bullet', 'asterisk', 'heading', or 'code block'. Spell out abbreviations and numbers naturally. Output only the rewritten text."
 
 FORMATTING_PREPROMPT = os.environ.get(
     "FORMATTING_PREPROMPT", DEFAULT_FORMATTING_PREPROMPT
@@ -78,7 +78,9 @@ FORMATTING_PREPROMPT = os.environ.get(
 PERSONALITY_PREPROMPT = os.environ.get(
     "PERSONALITY_PREPROMPT", DEFAULT_PERSONALITY_PREPROMPT
 )
-TTS_PREPROMPT = os.environ.get("TTS_PREPROMPT", DEFAULT_TTS_PREPROMPT)
+TTS_CONVERSION_PREPROMPT = os.environ.get(
+    "TTS_CONVERSION_PREPROMPT", DEFAULT_TTS_CONVERSION_PREPROMPT
+)
 
 RATE_LIMIT_REQUESTS = int(os.environ.get("RATE_LIMIT_REQUESTS", "300"))
 RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"))
@@ -241,8 +243,7 @@ async def prompt(
     display_system_prompt = f"{FORMATTING_PREPROMPT}\n\n{PERSONALITY_PREPROMPT}"
     display_response = await call_openai(display_system_prompt, request.prompt)
 
-    tts_system_prompt = f"{PERSONALITY_PREPROMPT}\n\n{TTS_PREPROMPT}"
-    tts_response = await call_openai(tts_system_prompt, request.prompt)
+    tts_response = await call_openai(TTS_CONVERSION_PREPROMPT, display_response)
 
     audio_bytes = await call_tts(tts_response, voice)
     audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")

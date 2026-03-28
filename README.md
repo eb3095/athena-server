@@ -25,7 +25,7 @@ LLM prompting API that wraps OpenAI for text generation with optional text-to-sp
 | `DEFAULT_VOICE` | Default speaker voice name | |
 | `FORMATTING_PREPROMPT` | System prompt for markdown formatting | See below |
 | `PERSONALITY_PREPROMPT` | System prompt for personality/behavior | See below |
-| `TTS_PREPROMPT` | System prompt for TTS-friendly output | See below |
+| `TTS_CONVERSION_PREPROMPT` | System prompt for converting display response to spoken form | See below |
 | `RATE_LIMIT_REQUESTS` | Max requests per window | `300` |
 | `RATE_LIMIT_WINDOW_SECONDS` | Rate limit window duration | `60` |
 | `AUTH_FAIL_BAN_THRESHOLD` | Auth failures before IP ban | `3` |
@@ -43,9 +43,9 @@ Format your response using markdown when appropriate. Use headers, bullet points
 You are a helpful AI assistant.
 ```
 
-**TTS Preprompt:**
+**TTS Conversion Preprompt:**
 ```
-Respond in natural spoken text only. Do not use any markdown formatting, special characters, bullet points, numbered lists, or code blocks. Write as if speaking aloud - use complete sentences, spell out abbreviations, and describe any visual elements verbally. Do not include asterisks, hashes, backticks, or any formatting symbols.
+Rewrite this as natural speech. Keep the same meaning and information but make it sound like someone talking. No markdown, no bullet points, no formatting - just flowing sentences. Never say words like 'bullet', 'asterisk', 'heading', or 'code block'. Spell out abbreviations and numbers naturally. Output only the rewritten text.
 ```
 
 ## API
@@ -178,9 +178,9 @@ helm uninstall athena-server
 When `speaker=true`, athena-server makes two OpenAI calls:
 
 1. **Display response**: Uses formatting + personality preprompts to generate markdown-formatted text
-2. **TTS response**: Uses personality preprompt + TTS instruction to generate natural spoken text
+2. **TTS conversion**: Converts the display response into natural spoken form (strips markdown, spells out abbreviations, etc.)
 
-The display response is returned to the user while the TTS response is sent to athena-tts for audio synthesis.
+The display response is returned to the user while the converted TTS text is sent to athena-tts for audio synthesis. This ensures the spoken audio matches the displayed text content exactly.
 
 ## Requirements
 
