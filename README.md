@@ -45,7 +45,7 @@ You are a helpful AI assistant.
 
 **TTS Conversion Preprompt:**
 ```
-Rewrite this as natural speech. Keep the same meaning and information but make it sound like someone talking. No markdown, no bullet points, no formatting - just flowing sentences. Never say words like 'bullet', 'asterisk', 'heading', or 'code block'. Spell out abbreviations and numbers naturally. Output only the rewritten text.
+Convert this text to spoken form while keeping it as close to the original wording as possible. Only make minimal changes: remove markdown symbols, convert lists to sentences, spell out abbreviations. Do not rephrase, summarize, or add anything. Never say words like 'bullet', 'asterisk', or 'code block'. Output only the converted text.
 ```
 
 ## API

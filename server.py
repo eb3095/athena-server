@@ -70,7 +70,7 @@ DEFAULT_VOICE = os.environ.get("DEFAULT_VOICE", "")
 
 DEFAULT_FORMATTING_PREPROMPT = "Format your response using markdown when appropriate. Use headers, bullet points, code blocks, and emphasis to make the response clear and readable."
 DEFAULT_PERSONALITY_PREPROMPT = "You are a helpful AI assistant."
-DEFAULT_TTS_CONVERSION_PREPROMPT = "Rewrite this as natural speech. Keep the same meaning and information but make it sound like someone talking. No markdown, no bullet points, no formatting - just flowing sentences. Never say words like 'bullet', 'asterisk', 'heading', or 'code block'. Spell out abbreviations and numbers naturally. Output only the rewritten text."
+DEFAULT_TTS_CONVERSION_PREPROMPT = "Convert this text to spoken form while keeping it as close to the original wording as possible. Only make minimal changes: remove markdown symbols, convert lists to sentences, spell out abbreviations. Do not rephrase, summarize, or add anything. Never say words like 'bullet', 'asterisk', or 'code block'. Output only the converted text."
 
 FORMATTING_PREPROMPT = os.environ.get(
     "FORMATTING_PREPROMPT", DEFAULT_FORMATTING_PREPROMPT
