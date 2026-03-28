@@ -46,8 +46,6 @@ resources:
 ingress:
   enabled: false
   host: ""
-  entryPoints:
-    - web
   middlewares: []
   tls:
     enabled: false
