@@ -27,7 +27,7 @@ defaultVoice: ""
 prompts:
   formatting: "Format your response using markdown when appropriate. Use headers, bullet points, code blocks, and emphasis to make the response clear and readable."
   personality: "You are a helpful AI assistant."
-  tts: "Respond in natural spoken text only. Do not use any markdown formatting, special characters, bullet points, numbered lists, or code blocks. Write as if speaking aloud - use complete sentences, spell out abbreviations, and describe any visual elements verbally. Do not include asterisks, hashes, backticks, or any formatting symbols."
+  ttsConversion: "Rewrite this as natural speech. Keep the same meaning and information but make it sound like someone talking. No markdown, no bullet points, no formatting - just flowing sentences. Never say words like 'bullet', 'asterisk', 'heading', or 'code block'. Spell out abbreviations and numbers naturally. Output only the rewritten text."
 
 security:
   rateLimitRequests: 300
