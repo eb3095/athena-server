@@ -7,7 +7,6 @@ import uvicorn
 import httpx
 import base64
 import os
-import re
 import secrets
 import time
 from typing import Optional
@@ -71,12 +70,16 @@ DEFAULT_VOICE = os.environ.get("DEFAULT_VOICE", "")
 
 DEFAULT_FORMATTING_PREPROMPT = "Format your response using markdown when appropriate. Use headers, bullet points, code blocks, and emphasis to make the response clear and readable."
 DEFAULT_PERSONALITY_PREPROMPT = "You are a helpful AI assistant."
+DEFAULT_TTS_CONVERSION_PREPROMPT = "Convert this text to spoken form while keeping it as close to the original wording as possible. Only make minimal changes: remove markdown symbols, convert lists to sentences, spell out abbreviations. Do not rephrase, summarize, or add anything. Never say words like 'bullet', 'asterisk', or 'code block'. Output only the converted text."
 
 FORMATTING_PREPROMPT = os.environ.get(
     "FORMATTING_PREPROMPT", DEFAULT_FORMATTING_PREPROMPT
 )
 PERSONALITY_PREPROMPT = os.environ.get(
     "PERSONALITY_PREPROMPT", DEFAULT_PERSONALITY_PREPROMPT
+)
+TTS_CONVERSION_PREPROMPT = os.environ.get(
+    "TTS_CONVERSION_PREPROMPT", DEFAULT_TTS_CONVERSION_PREPROMPT
 )
 
 RATE_LIMIT_REQUESTS = int(os.environ.get("RATE_LIMIT_REQUESTS", "300"))
@@ -181,37 +184,6 @@ async def call_openai(
     return response.choices[0].message.content or ""
 
 
-def strip_markdown(text: str) -> str:
-    """Strip markdown formatting from text for TTS."""
-    # Remove code blocks (``` ... ```)
-    text = re.sub(r"```[\s\S]*?```", "", text)
-    # Remove inline code (` ... `)
-    text = re.sub(r"`([^`]+)`", r"\1", text)
-    # Remove headers (# ## ### etc)
-    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
-    # Remove bold/italic (** * __ _)
-    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
-    text = re.sub(r"\*([^*]+)\*", r"\1", text)
-    text = re.sub(r"__([^_]+)__", r"\1", text)
-    text = re.sub(r"_([^_]+)_", r"\1", text)
-    # Remove strikethrough
-    text = re.sub(r"~~([^~]+)~~", r"\1", text)
-    # Remove links [text](url) -> text
-    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-    # Remove images ![alt](url)
-    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
-    # Remove horizontal rules
-    text = re.sub(r"^[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)
-    # Remove blockquotes
-    text = re.sub(r"^>\s+", "", text, flags=re.MULTILINE)
-    # Remove list markers (- * + and numbered)
-    text = re.sub(r"^[\s]*[-*+]\s+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^[\s]*\d+\.\s+", "", text, flags=re.MULTILINE)
-    # Clean up extra whitespace
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
-
-
 async def call_tts(text: str, speaker: str) -> bytes:
     response = await http_client.post(
         f"{ATHENA_TTS_URL}/api/tts",
@@ -273,7 +245,7 @@ async def prompt(
     display_system_prompt = f"{FORMATTING_PREPROMPT}\n\n{PERSONALITY_PREPROMPT}"
     display_response = await call_openai(display_system_prompt, request.prompt)
 
-    tts_response = strip_markdown(display_response)
+    tts_response = await call_openai(TTS_CONVERSION_PREPROMPT, display_response, temperature=0.1)
 
     audio_bytes = await call_tts(tts_response, voice)
     audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")

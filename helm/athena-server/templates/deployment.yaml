@@ -64,6 +64,8 @@ spec:
               value: {{ .Values.prompts.formatting | quote }}
             - name: PERSONALITY_PREPROMPT
               value: {{ .Values.prompts.personality | quote }}
+            - name: TTS_CONVERSION_PREPROMPT
+              value: {{ .Values.prompts.ttsConversion | quote }}
             - name: RATE_LIMIT_REQUESTS
               value: {{ .Values.security.rateLimitRequests | quote }}
             - name: RATE_LIMIT_WINDOW_SECONDS

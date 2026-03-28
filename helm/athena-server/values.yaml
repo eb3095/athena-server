@@ -27,6 +27,7 @@ defaultVoice: ""
 prompts:
   formatting: "Format your response using markdown when appropriate. Use headers, bullet points, code blocks, and emphasis to make the response clear and readable."
   personality: "You are a helpful AI assistant."
+  ttsConversion: "Convert this text to spoken form while keeping it as close to the original wording as possible. Only make minimal changes: remove markdown symbols, convert lists to sentences, spell out abbreviations. Do not rephrase, summarize, or add anything. Never say words like 'bullet', 'asterisk', or 'code block'. Output only the converted text."
 
 security:
   rateLimitRequests: 300
