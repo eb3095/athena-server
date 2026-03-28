@@ -1,0 +1,6 @@
+apiVersion: v2
+name: athena-server
+description: A Helm chart for Athena Server - LLM prompting API with TTS integration
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

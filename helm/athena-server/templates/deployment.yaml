@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "athena-server.fullname" . }}
+  labels:
+    {{- include "athena-server.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "athena-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "athena-server.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 5003
+              protocol: TCP
+          env:
+            - name: AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "athena-server.fullname" . }}-secrets
+                  key: auth-token
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "athena-server.fullname" . }}-secrets
+                  key: openai-api-key
+            - name: ATHENA_TTS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "athena-server.fullname" . }}-secrets
+                  key: athena-tts-token
+            - name: OPENAI_MODEL
+              value: {{ .Values.openai.model | quote }}
+            - name: OPENAI_TEMPERATURE
+              value: {{ .Values.openai.temperature | quote }}
+            - name: OPENAI_MAX_TOKENS
+              value: {{ .Values.openai.maxTokens | quote }}
+            - name: ATHENA_TTS_URL
+              value: {{ .Values.athenaTts.url | quote }}
+            - name: DEFAULT_VOICE
+              value: {{ .Values.defaultVoice | quote }}
+            - name: FORMATTING_PREPROMPT
+              value: {{ .Values.prompts.formatting | quote }}
+            - name: PERSONALITY_PREPROMPT
+              value: {{ .Values.prompts.personality | quote }}
+            - name: TTS_PREPROMPT
+              value: {{ .Values.prompts.tts | quote }}
+            - name: RATE_LIMIT_REQUESTS
+              value: {{ .Values.security.rateLimitRequests | quote }}
+            - name: RATE_LIMIT_WINDOW_SECONDS
+              value: {{ .Values.security.rateLimitWindowSeconds | quote }}
+            - name: AUTH_FAIL_BAN_THRESHOLD
+              value: {{ .Values.security.authFailBanThreshold | quote }}
+            - name: AUTH_FAIL_BAN_DURATION_SECONDS
+              value: {{ .Values.security.authFailBanDurationSeconds | quote }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

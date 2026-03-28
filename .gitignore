@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+test-output.wav
+*.wav
+helmd-local/
+
+# AI context
+.eca/
+
+# Environment
+.env
+.env.local

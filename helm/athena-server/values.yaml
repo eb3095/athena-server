@@ -1,0 +1,50 @@
+replicaCount: 1
+
+image:
+  repository: ebennerv/athena-server
+  tag: latest
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 5003
+
+auth:
+  token: ""
+
+openai:
+  apiKey: ""
+  model: "gpt-4o"
+  temperature: "0.7"
+  maxTokens: "4096"
+
+athenaTts:
+  url: "http://athena-tts:5002"
+  token: ""
+
+defaultVoice: ""
+
+prompts:
+  formatting: "Format your response using markdown when appropriate. Use headers, bullet points, code blocks, and emphasis to make the response clear and readable."
+  personality: "You are a helpful AI assistant."
+  tts: "Respond in natural spoken text only. Do not use any markdown formatting, special characters, bullet points, numbered lists, or code blocks. Write as if speaking aloud - use complete sentences, spell out abbreviations, and describe any visual elements verbally. Do not include asterisks, hashes, backticks, or any formatting symbols."
+
+security:
+  rateLimitRequests: 300
+  rateLimitWindowSeconds: 60
+  authFailBanThreshold: 3
+  authFailBanDurationSeconds: 604800
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
