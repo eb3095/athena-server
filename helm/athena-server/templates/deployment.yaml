@@ -58,6 +58,8 @@ spec:
               value: {{ .Values.openai.maxTokens | quote }}
             - name: ATHENA_TTS_URL
               value: {{ .Values.athenaTts.url | quote }}
+            - name: TTS_TIMEOUT
+              value: {{ .Values.athenaTts.timeout | quote }}
             - name: DEFAULT_VOICE
               value: {{ .Values.defaultVoice | quote }}
             - name: FORMATTING_PREPROMPT

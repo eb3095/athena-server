@@ -21,6 +21,7 @@ openai:
 athenaTts:
   url: "http://athena-tts:5002"
   token: ""
+  timeout: "600"
 
 defaultVoice: ""
 
