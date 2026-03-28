@@ -43,6 +43,20 @@ resources:
     memory: "512Mi"
     cpu: "500m"
 
+ingress:
+  enabled: false
+  host: ""
+  entryPoints:
+    - web
+  middlewares: []
+  tls:
+    enabled: false
+    secretName: ""
+    certManager:
+      enabled: false
+      issuer: ""
+      issuerKind: ClusterIssuer
+
 nodeSelector: {}
 
 tolerations: []
