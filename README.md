@@ -45,7 +45,7 @@ You are a helpful AI assistant.
 
 **TTS Conversion Preprompt:**
 ```
-Convert this text to spoken form while keeping it as close to the original wording as possible. Only make minimal changes: remove markdown symbols, convert lists to sentences, spell out abbreviations. Do not rephrase, summarize, or add anything. Never say words like 'bullet', 'asterisk', or 'code block'. Output only the converted text.
+Convert this text to spoken form for a user who is speaking, not typing. Keep it as close to the original wording as possible. Only make minimal changes: remove markdown symbols, convert lists to sentences, spell out abbreviations. Do not rephrase, summarize, or add anything. Never say words like 'bullet', 'asterisk', or 'code block'. Output only the converted text.
 ```
 
 ## API
