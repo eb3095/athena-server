@@ -90,6 +90,7 @@ AUTH_FAIL_BAN_DURATION_SECONDS = int(
 )
 MAX_PROMPT_LENGTH = int(os.environ.get("MAX_PROMPT_LENGTH", "10000"))
 OPENAI_TIMEOUT = float(os.environ.get("OPENAI_TIMEOUT", "120.0"))
+TTS_TIMEOUT = float(os.environ.get("TTS_TIMEOUT", "300.0"))
 
 rate_limit_store: dict[str, list[float]] = defaultdict(list)
 auth_fail_store: dict[str, list[float]] = defaultdict(list)
@@ -189,7 +190,7 @@ async def call_tts(text: str, speaker: str) -> bytes:
         f"{ATHENA_TTS_URL}/api/tts",
         headers={"Authorization": f"Bearer {ATHENA_TTS_TOKEN}"},
         data={"text": text, "speaker": speaker},
-        timeout=120.0,
+        timeout=TTS_TIMEOUT,
     )
     if response.status_code != 200:
         raise HTTPException(
