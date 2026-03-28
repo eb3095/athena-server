@@ -168,10 +168,12 @@ def verify_token(
     return credentials
 
 
-async def call_openai(system_prompt: str, user_prompt: str) -> str:
+async def call_openai(
+    system_prompt: str, user_prompt: str, temperature: Optional[float] = None
+) -> str:
     response = await openai_client.chat.completions.create(
         model=OPENAI_MODEL,
-        temperature=OPENAI_TEMPERATURE,
+        temperature=temperature if temperature is not None else OPENAI_TEMPERATURE,
         max_tokens=OPENAI_MAX_TOKENS,
         timeout=OPENAI_TIMEOUT,
         messages=[
@@ -243,7 +245,7 @@ async def prompt(
     display_system_prompt = f"{FORMATTING_PREPROMPT}\n\n{PERSONALITY_PREPROMPT}"
     display_response = await call_openai(display_system_prompt, request.prompt)
 
-    tts_response = await call_openai(TTS_CONVERSION_PREPROMPT, display_response)
+    tts_response = await call_openai(TTS_CONVERSION_PREPROMPT, display_response, temperature=0.1)
 
     audio_bytes = await call_tts(tts_response, voice)
     audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
