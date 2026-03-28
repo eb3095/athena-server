@@ -27,7 +27,6 @@ defaultVoice: ""
 prompts:
   formatting: "Format your response using markdown when appropriate. Use headers, bullet points, code blocks, and emphasis to make the response clear and readable."
   personality: "You are a helpful AI assistant."
-  ttsConversion: "Strip markdown syntax from this text. Remove **, *, #, `, ```, -, and similar formatting characters. Keep all words exactly the same - do not rephrase, reorder, add, or remove any words. Just delete the formatting symbols. Output only the cleaned text."
 
 security:
   rateLimitRequests: 300
