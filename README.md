@@ -59,6 +59,7 @@ LLM prompting API that wraps OpenAI for text generation with text-to-speech via 
 | `AGENT_JOB_TIMEOUT_MINUTES` | Minutes before pending/assigned jobs timeout | `30` |
 | `COMPLETED_JOB_RETENTION_HOURS` | Hours to retain completed jobs | `6` |
 | `STREAM_SENTENCE_PAUSE_MS` | Pause between sentences in combined streaming audio | `500` |
+| `MAX_CONVERSATION_MESSAGES` | Maximum messages in conversation context | `20` |
 | `FORMATTING_PREPROMPT` | System prompt for markdown formatting | See below |
 | `PERSONALITY_PREPROMPT` | System prompt for personality/behavior | See below |
 | `TTS_CONVERSION_PREPROMPT` | System prompt for converting display response to spoken form | See below |
@@ -200,6 +201,80 @@ Get the status of a streaming job. Returns individual sentence audio as they com
   ],
   "combined_audio": "base64-all-sentences-with-pauses",
   "error": null
+}
+```
+
+### POST /api/conversation/job
+
+Submit an async conversation job with message history. Supports multi-turn conversations with context.
+
+**Request:**
+```json
+{
+  "messages": [
+    {"role": "user", "content": "What's the capital of France?"},
+    {"role": "assistant", "content": "The capital of France is Paris."},
+    {"role": "user", "content": "What's its population?"}
+  ],
+  "speaker": true,
+  "speaker_voice": "voice-name"
+}
+```
+
+**Response (202 Accepted):**
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "pending"
+}
+```
+
+### GET /api/conversation/job/{job_id}
+
+Get the status of a conversation job.
+
+### POST /api/conversation/stream/job
+
+Submit a streaming conversation job with message history. Same as conversation/job but with sentence-by-sentence audio.
+
+### GET /api/conversation/stream/job/{job_id}
+
+Get the status of a streaming conversation job.
+
+### POST /api/format/text
+
+Clean up speech-to-text output using AI (adds punctuation, fixes grammar).
+
+**Request:**
+```json
+{
+  "text": "hello how are you doing today"
+}
+```
+
+**Response:**
+```json
+{
+  "formatted_text": "Hello, how are you doing today?"
+}
+```
+
+### POST /api/summarize
+
+Generate a short summary/title from text.
+
+**Request:**
+```json
+{
+  "text": "What's the weather like in Paris today?",
+  "max_words": 6
+}
+```
+
+**Response:**
+```json
+{
+  "summary": "Weather in Paris inquiry"
 }
 ```
 

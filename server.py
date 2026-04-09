@@ -126,6 +126,20 @@ class PromptJob:
     error: Optional[str] = None
 
 
+@dataclass
+class ConversationJob:
+    job_id: str
+    messages: str  # JSON-encoded list of messages
+    speaker: bool
+    speaker_voice: Optional[str]
+    status: str = "pending"
+    created_at: float = field(default_factory=time.time)
+    completed_at: Optional[float] = None
+    response_text: Optional[str] = None
+    audio_base64: Optional[str] = None
+    error: Optional[str] = None
+
+
 rate_limit_store: dict[str, list[float]] = defaultdict(list)
 auth_fail_store: dict[str, list[float]] = defaultdict(list)
 banned_ips: dict[str, float] = {}
@@ -247,6 +261,52 @@ class StreamJobStatusResponse(BaseModel):
     combined_audio: Optional[str] = None
     voice: Optional[str] = None
     error: Optional[str] = None
+
+
+class ConversationMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class ConversationJobRequest(BaseModel):
+    messages: List[ConversationMessage]
+    speaker: bool = False
+    speaker_voice: Optional[str] = None
+
+
+class ConversationStreamJobRequest(BaseModel):
+    messages: List[ConversationMessage]
+    speaker_voice: Optional[str] = None
+    sentence_pause_ms: Optional[int] = None
+
+
+class ConversationJobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    response: Optional[str] = None
+    audio: Optional[str] = None
+    voice: Optional[str] = None
+    error: Optional[str] = None
+
+
+class FormatTextRequest(BaseModel):
+    text: str
+
+
+class FormatTextResponse(BaseModel):
+    formatted_text: str
+
+
+class SummarizeRequest(BaseModel):
+    text: str
+    max_words: int = 6
+
+
+class SummarizeResponse(BaseModel):
+    summary: str
+
+
+MAX_CONVERSATION_MESSAGES = int(os.environ.get("MAX_CONVERSATION_MESSAGES", "20"))
 
 
 def split_into_sentences(text: str) -> List[str]:
@@ -556,6 +616,183 @@ async def update_stream_sentence(job_id: str, index: int, **fields):
             updates[k] = str(v)
     await redis_client.hset(key, mapping=updates)
     await redis_client.expire(key, JOB_EXPIRY_SECONDS * 2)
+
+
+async def save_conversation_job(job: ConversationJob):
+    """Save a conversation job to Redis."""
+    key = f"conversation_job:{job.job_id}"
+    data = {}
+    for k, v in asdict(job).items():
+        if v is None:
+            data[k] = ""
+        elif isinstance(v, bool):
+            data[k] = "1" if v else "0"
+        else:
+            data[k] = str(v)
+    await redis_client.hset(key, mapping=data)
+    ttl = (
+        JOB_EXPIRY_SECONDS
+        if job.status in ("completed", "failed")
+        else JOB_EXPIRY_SECONDS * 2
+    )
+    await redis_client.expire(key, ttl)
+
+
+async def get_conversation_job(job_id: str) -> Optional[ConversationJob]:
+    """Get a conversation job from Redis."""
+    key = f"conversation_job:{job_id}"
+    data = await redis_client.hgetall(key)
+    if not data or "job_id" not in data:
+        return None
+    return ConversationJob(
+        job_id=data["job_id"],
+        messages=data.get("messages", "[]"),
+        speaker=data.get("speaker") == "1",
+        speaker_voice=data["speaker_voice"] if data.get("speaker_voice") else None,
+        status=data.get("status", "failed"),
+        created_at=float(data["created_at"]) if data.get("created_at") else 0.0,
+        completed_at=float(data["completed_at"]) if data.get("completed_at") else None,
+        response_text=data.get("response_text") if data.get("response_text") else None,
+        audio_base64=data.get("audio_base64") if data.get("audio_base64") else None,
+        error=data.get("error") if data.get("error") else None,
+    )
+
+
+async def update_conversation_job_status(job_id: str, status: str, **fields):
+    """Update conversation job status."""
+    key = f"conversation_job:{job_id}"
+    updates = {"status": status}
+    for k, v in fields.items():
+        if v is None:
+            updates[k] = ""
+        else:
+            updates[k] = str(v)
+    await redis_client.hset(key, mapping=updates)
+    ttl = (
+        JOB_EXPIRY_SECONDS
+        if status in ("completed", "failed")
+        else JOB_EXPIRY_SECONDS * 2
+    )
+    await redis_client.expire(key, ttl)
+
+
+async def save_conversation_stream_job(
+    job_id: str,
+    messages: str,
+    voice: str,
+    sentences: List[str],
+    pause_ms: int,
+):
+    """Save a conversation streaming job with its sentences."""
+    key = f"conversation_stream_job:{job_id}"
+    data = {
+        "job_id": job_id,
+        "messages": messages,
+        "voice": voice,
+        "status": "pending",
+        "pause_ms": str(pause_ms),
+        "created_at": str(time.time()),
+        "sentence_count": str(len(sentences)),
+        "response_text": "",
+        "combined_audio": "",
+        "error": "",
+    }
+    await redis_client.hset(key, mapping=data)
+    await redis_client.expire(key, JOB_EXPIRY_SECONDS * 2)
+    
+    for i, sentence in enumerate(sentences):
+        sentence_key = f"conversation_stream_job:{job_id}:sentence:{i}"
+        sentence_data = {
+            "index": str(i),
+            "text": sentence,
+            "audio": "",
+            "status": "pending",
+            "tts_job_id": "",
+        }
+        await redis_client.hset(sentence_key, mapping=sentence_data)
+        await redis_client.expire(sentence_key, JOB_EXPIRY_SECONDS * 2)
+
+
+async def get_conversation_stream_job(job_id: str) -> Optional[dict]:
+    """Get a conversation streaming job with all its sentences."""
+    key = f"conversation_stream_job:{job_id}"
+    data = await redis_client.hgetall(key)
+    if not data or "job_id" not in data:
+        return None
+    
+    sentence_count = int(data.get("sentence_count", 0))
+    sentences = []
+    
+    for i in range(sentence_count):
+        sentence_key = f"conversation_stream_job:{job_id}:sentence:{i}"
+        sentence_data = await redis_client.hgetall(sentence_key)
+        if sentence_data:
+            sentences.append({
+                "index": int(sentence_data.get("index", i)),
+                "text": sentence_data.get("text", ""),
+                "audio": sentence_data.get("audio") or None,
+                "status": sentence_data.get("status", "pending"),
+            })
+    
+    return {
+        "job_id": data["job_id"],
+        "messages": data.get("messages", "[]"),
+        "voice": data.get("voice", ""),
+        "status": data.get("status", "pending"),
+        "pause_ms": int(data.get("pause_ms", STREAM_SENTENCE_PAUSE_MS)),
+        "response_text": data.get("response_text") or None,
+        "combined_audio": data.get("combined_audio") or None,
+        "error": data.get("error") or None,
+        "sentences": sentences,
+    }
+
+
+async def update_conversation_stream_job_status(job_id: str, status: str, **fields):
+    """Update conversation streaming job status."""
+    key = f"conversation_stream_job:{job_id}"
+    updates = {"status": status}
+    for k, v in fields.items():
+        if v is None:
+            updates[k] = ""
+        else:
+            updates[k] = str(v)
+    await redis_client.hset(key, mapping=updates)
+    ttl = (
+        JOB_EXPIRY_SECONDS
+        if status in ("completed", "failed")
+        else JOB_EXPIRY_SECONDS * 2
+    )
+    await redis_client.expire(key, ttl)
+
+
+async def update_conversation_stream_sentence(job_id: str, index: int, **fields):
+    """Update a sentence's status/audio in a conversation streaming job."""
+    key = f"conversation_stream_job:{job_id}:sentence:{index}"
+    updates = {}
+    for k, v in fields.items():
+        if v is None:
+            updates[k] = ""
+        else:
+            updates[k] = str(v)
+    await redis_client.hset(key, mapping=updates)
+    await redis_client.expire(key, JOB_EXPIRY_SECONDS * 2)
+
+
+async def call_openai_conversation(
+    system_prompt: str, messages: List[dict], temperature: Optional[float] = None
+) -> str:
+    """Call OpenAI with conversation history."""
+    openai_messages = [{"role": "system", "content": system_prompt}]
+    openai_messages.extend(messages)
+    
+    response = await openai_client.chat.completions.create(
+        model=OPENAI_MODEL,
+        temperature=temperature if temperature is not None else OPENAI_TEMPERATURE,
+        max_tokens=OPENAI_MAX_TOKENS,
+        timeout=OPENAI_TIMEOUT,
+        messages=openai_messages,
+    )
+    return response.choices[0].message.content or ""
 
 
 async def create_agent_job(service_type: str, payload: dict) -> str:
@@ -1019,6 +1256,163 @@ async def process_stream_job(job_id: str):
         await update_stream_job_status(job_id, "failed", error=str(e))
 
 
+async def process_conversation_job(job_id: str):
+    """Process a conversation job - generates response from conversation history."""
+    try:
+        job = await get_conversation_job(job_id)
+        if not job:
+            return
+
+        await update_conversation_job_status(job_id, "processing")
+
+        messages = json.loads(job.messages)
+        
+        # Enforce rolling window limit
+        if len(messages) > MAX_CONVERSATION_MESSAGES:
+            messages = messages[-MAX_CONVERSATION_MESSAGES:]
+
+        # Convert to OpenAI format
+        openai_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
+
+        if not job.speaker:
+            system_prompt = f"{FORMATTING_PREPROMPT}\n\n{PERSONALITY_PREPROMPT}"
+            response_text = await call_openai_conversation(system_prompt, openai_messages)
+            await update_conversation_job_status(
+                job_id,
+                "completed",
+                completed_at=time.time(),
+                response_text=response_text,
+            )
+            return
+
+        voice = job.speaker_voice or DEFAULT_VOICE
+        if not voice:
+            await update_conversation_job_status(
+                job_id,
+                "failed",
+                completed_at=time.time(),
+                error="No voice specified and DEFAULT_VOICE not configured",
+            )
+            return
+
+        display_system_prompt = f"{FORMATTING_PREPROMPT}\n\n{PERSONALITY_PREPROMPT}"
+        display_response = await call_openai_conversation(display_system_prompt, openai_messages)
+
+        tts_text = await call_openai(
+            TTS_CONVERSION_PREPROMPT, display_response, temperature=0.1
+        )
+
+        tts_job_id = await submit_tts_job_via_agent(tts_text, voice)
+        result = await poll_agent_job_result(tts_job_id, "tts")
+        audio_base64 = result.get("audio")
+
+        await update_conversation_job_status(
+            job_id,
+            "completed",
+            completed_at=time.time(),
+            response_text=display_response,
+            audio_base64=audio_base64,
+        )
+
+    except Exception as e:
+        await update_conversation_job_status(
+            job_id, "failed", completed_at=time.time(), error=str(e)
+        )
+
+
+async def process_conversation_stream_job(job_id: str):
+    """Process a conversation streaming TTS job - generates audio for each sentence in parallel."""
+    try:
+        job = await get_conversation_stream_job(job_id)
+        if not job:
+            return
+
+        await update_conversation_stream_job_status(job_id, "processing")
+
+        voice = job["voice"]
+        sentences = job["sentences"]
+        pause_ms = job["pause_ms"]
+        messages = json.loads(job["messages"])
+        
+        # Enforce rolling window limit
+        if len(messages) > MAX_CONVERSATION_MESSAGES:
+            messages = messages[-MAX_CONVERSATION_MESSAGES:]
+
+        # Convert to OpenAI format
+        openai_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
+
+        display_system_prompt = f"{FORMATTING_PREPROMPT}\n\n{PERSONALITY_PREPROMPT}"
+        display_response = await call_openai_conversation(display_system_prompt, openai_messages)
+        
+        await update_conversation_stream_job_status(job_id, "processing", response_text=display_response)
+
+        tts_text = await call_openai(
+            TTS_CONVERSION_PREPROMPT, display_response, temperature=0.1
+        )
+
+        tts_sentences = split_into_sentences(tts_text)
+        
+        if len(tts_sentences) != len(sentences):
+            for i in range(len(sentences)):
+                sentence_key = f"conversation_stream_job:{job_id}:sentence:{i}"
+                await redis_client.delete(sentence_key)
+            
+            await redis_client.hset(f"conversation_stream_job:{job_id}", "sentence_count", str(len(tts_sentences)))
+            
+            for i, sentence in enumerate(tts_sentences):
+                sentence_key = f"conversation_stream_job:{job_id}:sentence:{i}"
+                sentence_data = {
+                    "index": str(i),
+                    "text": sentence,
+                    "audio": "",
+                    "status": "pending",
+                    "tts_job_id": "",
+                }
+                await redis_client.hset(sentence_key, mapping=sentence_data)
+                await redis_client.expire(sentence_key, JOB_EXPIRY_SECONDS * 2)
+
+        async def process_sentence(index: int, text: str):
+            try:
+                tts_job_id = await submit_tts_job_via_agent(text, voice)
+                await update_conversation_stream_sentence(job_id, index, status="processing", tts_job_id=tts_job_id)
+                
+                result = await poll_agent_job_result(tts_job_id, "tts")
+                audio_base64 = result.get("audio", "")
+                
+                await update_conversation_stream_sentence(job_id, index, status="completed", audio=audio_base64)
+                return audio_base64
+            except Exception as e:
+                await update_conversation_stream_sentence(job_id, index, status="failed")
+                raise e
+
+        tasks = [process_sentence(i, s) for i, s in enumerate(tts_sentences)]
+        audio_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        errors = [r for r in audio_results if isinstance(r, Exception)]
+        if errors:
+            raise errors[0]
+
+        audio_segments = []
+        for audio_b64 in audio_results:
+            if audio_b64:
+                audio_segments.append(base64.b64decode(audio_b64))
+
+        if audio_segments:
+            combined_audio = combine_wav_audio(audio_segments, pause_ms)
+            combined_audio_b64 = base64.b64encode(combined_audio).decode('utf-8')
+        else:
+            combined_audio_b64 = ""
+
+        await update_conversation_stream_job_status(
+            job_id,
+            "completed",
+            combined_audio=combined_audio_b64,
+        )
+
+    except Exception as e:
+        await update_conversation_stream_job_status(job_id, "failed", error=str(e))
+
+
 class JobSubmitResponse(BaseModel):
     job_id: str
     status: str
@@ -1448,6 +1842,212 @@ async def get_stream_job_status(
         voice=job["voice"],
         error=job["error"] if job["status"] == "failed" else None,
     )
+
+
+@app.post("/api/conversation/job", response_model=JobSubmitResponse, status_code=202)
+async def submit_conversation_job(
+    request: ConversationJobRequest,
+    background_tasks: BackgroundTasks,
+    _: HTTPAuthorizationCredentials = Depends(verify_token),
+):
+    """Submit an async conversation job with message history."""
+    if not request.messages:
+        raise HTTPException(status_code=400, detail="Messages cannot be empty")
+    
+    # Enforce rolling window limit
+    messages = request.messages[-MAX_CONVERSATION_MESSAGES:]
+    
+    # Validate total content length
+    total_length = sum(len(m.content) for m in messages)
+    if total_length > MAX_PROMPT_LENGTH * 10:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Total conversation content exceeds maximum length",
+        )
+
+    job_id = str(uuid.uuid4())
+    messages_json = json.dumps([{"role": m.role, "content": m.content} for m in messages])
+    
+    job = ConversationJob(
+        job_id=job_id,
+        messages=messages_json,
+        speaker=request.speaker,
+        speaker_voice=request.speaker_voice,
+    )
+    await save_conversation_job(job)
+
+    background_tasks.add_task(process_conversation_job, job_id)
+
+    return JobSubmitResponse(job_id=job_id, status="pending")
+
+
+@app.get("/api/conversation/job/{job_id}", response_model=ConversationJobStatusResponse)
+async def get_conversation_job_status(
+    job_id: str,
+    _: HTTPAuthorizationCredentials = Depends(verify_token),
+):
+    """Poll for conversation job status."""
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID format")
+
+    job = await get_conversation_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return ConversationJobStatusResponse(
+        job_id=job.job_id,
+        status=job.status,
+        response=job.response_text if job.status == "completed" else None,
+        audio=job.audio_base64 if job.status == "completed" else None,
+        error=job.error if job.status == "failed" else None,
+        voice=(job.speaker_voice or DEFAULT_VOICE) if job.status == "completed" and job.audio_base64 else None,
+    )
+
+
+@app.post("/api/conversation/stream/job", response_model=StreamJobResponse, status_code=202)
+async def submit_conversation_stream_job(
+    request: ConversationStreamJobRequest,
+    background_tasks: BackgroundTasks,
+    _: HTTPAuthorizationCredentials = Depends(verify_token),
+):
+    """Submit a streaming conversation job that processes sentences in parallel."""
+    if not request.messages:
+        raise HTTPException(status_code=400, detail="Messages cannot be empty")
+    
+    # Enforce rolling window limit
+    messages = request.messages[-MAX_CONVERSATION_MESSAGES:]
+    
+    # Validate total content length
+    total_length = sum(len(m.content) for m in messages)
+    if total_length > MAX_PROMPT_LENGTH * 10:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Total conversation content exceeds maximum length",
+        )
+
+    voice = request.speaker_voice or DEFAULT_VOICE
+    if not voice:
+        raise HTTPException(
+            status_code=400,
+            detail="No voice specified and DEFAULT_VOICE not configured",
+        )
+
+    pause_ms = request.sentence_pause_ms if request.sentence_pause_ms is not None else STREAM_SENTENCE_PAUSE_MS
+    messages_json = json.dumps([{"role": m.role, "content": m.content} for m in messages])
+
+    initial_sentences = ["Processing..."]
+
+    job_id = str(uuid.uuid4())
+    await save_conversation_stream_job(job_id, messages_json, voice, initial_sentences, pause_ms)
+
+    background_tasks.add_task(process_conversation_stream_job, job_id)
+
+    return StreamJobResponse(job_id=job_id, status="pending")
+
+
+@app.get("/api/conversation/stream/job/{job_id}", response_model=StreamJobStatusResponse)
+async def get_conversation_stream_job_status(
+    job_id: str,
+    _: HTTPAuthorizationCredentials = Depends(verify_token),
+):
+    """Poll for conversation streaming job status with individual sentence audio."""
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID format")
+
+    job = await get_conversation_stream_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    sentences = [
+        SentenceAudio(
+            index=s["index"],
+            text=s["text"],
+            audio=s["audio"],
+            status=s["status"],
+        )
+        for s in job["sentences"]
+    ]
+
+    return StreamJobStatusResponse(
+        job_id=job["job_id"],
+        status=job["status"],
+        response=job["response_text"],
+        sentences=sentences,
+        combined_audio=job["combined_audio"] if job["status"] == "completed" else None,
+        voice=job["voice"],
+        error=job["error"] if job["status"] == "failed" else None,
+    )
+
+
+FORMAT_TEXT_PREPROMPT = """You are a text formatting assistant. Your job is to clean up speech-to-text output.
+
+Rules:
+- Add proper punctuation (periods, commas, question marks, exclamation points)
+- Fix obvious grammar errors
+- Capitalize the first letter of sentences and proper nouns
+- Do NOT change the meaning or add new content
+- Do NOT rephrase or summarize
+- Keep the text as close to the original as possible
+- Output only the formatted text, nothing else"""
+
+
+SUMMARIZE_PREPROMPT = """Generate a very short title (maximum {max_words} words) that summarizes this text.
+
+Rules:
+- Maximum {max_words} words
+- No punctuation at the end
+- Capture the main topic or question
+- Be concise and clear
+- Output only the title, nothing else"""
+
+
+@app.post("/api/format/text", response_model=FormatTextResponse)
+async def format_text(
+    request: FormatTextRequest,
+    _: HTTPAuthorizationCredentials = Depends(verify_token),
+):
+    """Format/clean up STT output text using AI."""
+    if not request.text.strip():
+        return FormatTextResponse(formatted_text="")
+    
+    if len(request.text) > MAX_PROMPT_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Text exceeds maximum length of {MAX_PROMPT_LENGTH} characters",
+        )
+
+    formatted = await call_openai(FORMAT_TEXT_PREPROMPT, request.text, temperature=0.1)
+    return FormatTextResponse(formatted_text=formatted.strip())
+
+
+@app.post("/api/summarize", response_model=SummarizeResponse)
+async def summarize_text(
+    request: SummarizeRequest,
+    _: HTTPAuthorizationCredentials = Depends(verify_token),
+):
+    """Generate a short summary/title from text."""
+    if not request.text.strip():
+        return SummarizeResponse(summary="New conversation")
+    
+    if len(request.text) > MAX_PROMPT_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Text exceeds maximum length of {MAX_PROMPT_LENGTH} characters",
+        )
+
+    prompt = SUMMARIZE_PREPROMPT.format(max_words=request.max_words)
+    summary = await call_openai(prompt, request.text, temperature=0.3)
+    
+    # Ensure it doesn't exceed max words
+    words = summary.strip().split()
+    if len(words) > request.max_words:
+        summary = " ".join(words[:request.max_words])
+    
+    return SummarizeResponse(summary=summary.strip())
 
 
 @app.get("/health")
