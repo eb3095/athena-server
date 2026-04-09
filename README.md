@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="Athena Logo" width="200">
+</p>
+
 # athena-server
 
 LLM prompting API that wraps OpenAI for text generation with text-to-speech via distributed TTS agents.
