@@ -6,16 +6,20 @@ from pydantic import BaseModel
 from openai import AsyncOpenAI
 import uvicorn
 import base64
+import io
 import json
 import os
+import re
 import secrets
+import struct
 import time
 import uuid
+import wave
 import asyncio
 import redis.asyncio as redis
 from dataclasses import dataclass, field, asdict
 from enum import Enum
-from typing import Optional
+from typing import Optional, List
 from collections import defaultdict
 
 openai_client: Optional[AsyncOpenAI] = None
@@ -97,6 +101,8 @@ COMPLETED_JOB_RETENTION_HOURS = int(
     os.environ.get("COMPLETED_JOB_RETENTION_HOURS", "6")
 )
 COMPLETED_JOB_RETENTION_SECONDS = COMPLETED_JOB_RETENTION_HOURS * 60 * 60
+
+STREAM_SENTENCE_PAUSE_MS = int(os.environ.get("STREAM_SENTENCE_PAUSE_MS", "500"))
 
 
 class JobStatus(str, Enum):
@@ -213,6 +219,91 @@ class SpeakJobStatusResponse(BaseModel):
     audio: Optional[str] = None
     error: Optional[str] = None
     voice: Optional[str] = None
+
+
+class StreamJobRequest(BaseModel):
+    prompt: str
+    speaker_voice: Optional[str] = None
+    sentence_pause_ms: Optional[int] = None
+
+
+class StreamJobResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class SentenceAudio(BaseModel):
+    index: int
+    text: str
+    audio: Optional[str] = None
+    status: str
+
+
+class StreamJobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    response: Optional[str] = None
+    sentences: List[SentenceAudio] = []
+    combined_audio: Optional[str] = None
+    voice: Optional[str] = None
+    error: Optional[str] = None
+
+
+def split_into_sentences(text: str) -> List[str]:
+    """Split text into sentences for streaming TTS."""
+    sentence_endings = re.compile(r'(?<=[.!?])\s+')
+    sentences = sentence_endings.split(text.strip())
+    return [s.strip() for s in sentences if s.strip()]
+
+
+def generate_silence_wav(duration_ms: int, sample_rate: int = 22050) -> bytes:
+    """Generate silence as WAV bytes."""
+    num_samples = int(sample_rate * duration_ms / 1000)
+    silence = b'\x00\x00' * num_samples
+    
+    buffer = io.BytesIO()
+    with wave.open(buffer, 'wb') as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(silence)
+    
+    return buffer.getvalue()
+
+
+def combine_wav_audio(audio_segments: List[bytes], pause_ms: int = 500) -> bytes:
+    """Combine multiple WAV audio segments with pauses between them."""
+    if not audio_segments:
+        return b''
+    
+    if len(audio_segments) == 1:
+        return audio_segments[0]
+    
+    first_wav = io.BytesIO(audio_segments[0])
+    with wave.open(first_wav, 'rb') as w:
+        sample_rate = w.getframerate()
+        sample_width = w.getsampwidth()
+        n_channels = w.getnchannels()
+    
+    all_frames = []
+    silence_frames = b'\x00' * int(sample_rate * pause_ms / 1000) * sample_width * n_channels
+    
+    for i, audio_data in enumerate(audio_segments):
+        if i > 0 and pause_ms > 0:
+            all_frames.append(silence_frames)
+        
+        wav_buffer = io.BytesIO(audio_data)
+        with wave.open(wav_buffer, 'rb') as wav_file:
+            all_frames.append(wav_file.readframes(wav_file.getnframes()))
+    
+    output_buffer = io.BytesIO()
+    with wave.open(output_buffer, 'wb') as output_wav:
+        output_wav.setnchannels(n_channels)
+        output_wav.setsampwidth(sample_width)
+        output_wav.setframerate(sample_rate)
+        output_wav.writeframes(b''.join(all_frames))
+    
+    return output_buffer.getvalue()
 
 
 def get_client_ip(request: Request) -> str:
@@ -363,6 +454,108 @@ async def update_job_status(job_id: str, status: str, **fields):
         else JOB_EXPIRY_SECONDS * 2
     )
     await redis_client.expire(key, ttl)
+
+
+async def save_stream_job(
+    job_id: str,
+    prompt: str,
+    voice: str,
+    sentences: List[str],
+    pause_ms: int,
+):
+    """Save a streaming job with its sentences."""
+    key = f"stream_job:{job_id}"
+    data = {
+        "job_id": job_id,
+        "prompt": prompt,
+        "voice": voice,
+        "status": "pending",
+        "pause_ms": str(pause_ms),
+        "created_at": str(time.time()),
+        "sentence_count": str(len(sentences)),
+        "response_text": "",
+        "combined_audio": "",
+        "error": "",
+    }
+    await redis_client.hset(key, mapping=data)
+    await redis_client.expire(key, JOB_EXPIRY_SECONDS * 2)
+    
+    for i, sentence in enumerate(sentences):
+        sentence_key = f"stream_job:{job_id}:sentence:{i}"
+        sentence_data = {
+            "index": str(i),
+            "text": sentence,
+            "audio": "",
+            "status": "pending",
+            "tts_job_id": "",
+        }
+        await redis_client.hset(sentence_key, mapping=sentence_data)
+        await redis_client.expire(sentence_key, JOB_EXPIRY_SECONDS * 2)
+
+
+async def get_stream_job(job_id: str) -> Optional[dict]:
+    """Get a streaming job with all its sentences."""
+    key = f"stream_job:{job_id}"
+    data = await redis_client.hgetall(key)
+    if not data or "job_id" not in data:
+        return None
+    
+    sentence_count = int(data.get("sentence_count", 0))
+    sentences = []
+    
+    for i in range(sentence_count):
+        sentence_key = f"stream_job:{job_id}:sentence:{i}"
+        sentence_data = await redis_client.hgetall(sentence_key)
+        if sentence_data:
+            sentences.append({
+                "index": int(sentence_data.get("index", i)),
+                "text": sentence_data.get("text", ""),
+                "audio": sentence_data.get("audio") or None,
+                "status": sentence_data.get("status", "pending"),
+            })
+    
+    return {
+        "job_id": data["job_id"],
+        "prompt": data.get("prompt", ""),
+        "voice": data.get("voice", ""),
+        "status": data.get("status", "pending"),
+        "pause_ms": int(data.get("pause_ms", STREAM_SENTENCE_PAUSE_MS)),
+        "response_text": data.get("response_text") or None,
+        "combined_audio": data.get("combined_audio") or None,
+        "error": data.get("error") or None,
+        "sentences": sentences,
+    }
+
+
+async def update_stream_job_status(job_id: str, status: str, **fields):
+    """Update streaming job status."""
+    key = f"stream_job:{job_id}"
+    updates = {"status": status}
+    for k, v in fields.items():
+        if v is None:
+            updates[k] = ""
+        else:
+            updates[k] = str(v)
+    await redis_client.hset(key, mapping=updates)
+    ttl = (
+        JOB_EXPIRY_SECONDS
+        if status in ("completed", "failed")
+        else JOB_EXPIRY_SECONDS * 2
+    )
+    await redis_client.expire(key, ttl)
+
+
+async def update_stream_sentence(job_id: str, index: int, **fields):
+    """Update a sentence's status/audio in a streaming job."""
+    key = f"stream_job:{job_id}:sentence:{index}"
+    updates = {}
+    for k, v in fields.items():
+        if v is None:
+            updates[k] = ""
+        else:
+            updates[k] = str(v)
+    await redis_client.hset(key, mapping=updates)
+    await redis_client.expire(key, JOB_EXPIRY_SECONDS * 2)
 
 
 async def create_agent_job(service_type: str, payload: dict) -> str:
@@ -741,6 +934,91 @@ async def process_prompt_job(job_id: str):
         )
 
 
+async def process_stream_job(job_id: str):
+    """Process a streaming TTS job - generates audio for each sentence in parallel."""
+    try:
+        job = await get_stream_job(job_id)
+        if not job:
+            return
+
+        await update_stream_job_status(job_id, "processing")
+
+        voice = job["voice"]
+        sentences = job["sentences"]
+        pause_ms = job["pause_ms"]
+
+        display_system_prompt = f"{FORMATTING_PREPROMPT}\n\n{PERSONALITY_PREPROMPT}"
+        display_response = await call_openai(display_system_prompt, job["prompt"])
+        
+        await update_stream_job_status(job_id, "processing", response_text=display_response)
+
+        tts_text = await call_openai(
+            TTS_CONVERSION_PREPROMPT, display_response, temperature=0.1
+        )
+
+        tts_sentences = split_into_sentences(tts_text)
+        
+        if len(tts_sentences) != len(sentences):
+            for i in range(len(sentences)):
+                sentence_key = f"stream_job:{job_id}:sentence:{i}"
+                await redis_client.delete(sentence_key)
+            
+            await redis_client.hset(f"stream_job:{job_id}", "sentence_count", str(len(tts_sentences)))
+            
+            for i, sentence in enumerate(tts_sentences):
+                sentence_key = f"stream_job:{job_id}:sentence:{i}"
+                sentence_data = {
+                    "index": str(i),
+                    "text": sentence,
+                    "audio": "",
+                    "status": "pending",
+                    "tts_job_id": "",
+                }
+                await redis_client.hset(sentence_key, mapping=sentence_data)
+                await redis_client.expire(sentence_key, JOB_EXPIRY_SECONDS * 2)
+
+        async def process_sentence(index: int, text: str):
+            try:
+                tts_job_id = await submit_tts_job_via_agent(text, voice)
+                await update_stream_sentence(job_id, index, status="processing", tts_job_id=tts_job_id)
+                
+                result = await poll_agent_job_result(tts_job_id, "tts")
+                audio_base64 = result.get("audio", "")
+                
+                await update_stream_sentence(job_id, index, status="completed", audio=audio_base64)
+                return audio_base64
+            except Exception as e:
+                await update_stream_sentence(job_id, index, status="failed")
+                raise e
+
+        tasks = [process_sentence(i, s) for i, s in enumerate(tts_sentences)]
+        audio_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        errors = [r for r in audio_results if isinstance(r, Exception)]
+        if errors:
+            raise errors[0]
+
+        audio_segments = []
+        for audio_b64 in audio_results:
+            if audio_b64:
+                audio_segments.append(base64.b64decode(audio_b64))
+
+        if audio_segments:
+            combined_audio = combine_wav_audio(audio_segments, pause_ms)
+            combined_audio_b64 = base64.b64encode(combined_audio).decode('utf-8')
+        else:
+            combined_audio_b64 = ""
+
+        await update_stream_job_status(
+            job_id,
+            "completed",
+            combined_audio=combined_audio_b64,
+        )
+
+    except Exception as e:
+        await update_stream_job_status(job_id, "failed", error=str(e))
+
+
 class JobSubmitResponse(BaseModel):
     job_id: str
     status: str
@@ -1100,6 +1378,75 @@ async def speak_job_status(
         audio=audio,
         error=error if status == "failed" else None,
         voice=voice,
+    )
+
+
+@app.post("/api/stream/job", response_model=StreamJobResponse, status_code=202)
+async def submit_stream_job(
+    request: Request,
+    body: StreamJobRequest,
+    background_tasks: BackgroundTasks,
+    _: HTTPAuthorizationCredentials = Depends(verify_token),
+):
+    """Submit a streaming prompt job that processes sentences in parallel."""
+    if len(body.prompt) > MAX_PROMPT_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Prompt exceeds maximum length of {MAX_PROMPT_LENGTH} characters",
+        )
+
+    voice = body.speaker_voice or DEFAULT_VOICE
+    if not voice:
+        raise HTTPException(
+            status_code=400,
+            detail="No voice specified and DEFAULT_VOICE not configured",
+        )
+
+    pause_ms = body.sentence_pause_ms if body.sentence_pause_ms is not None else STREAM_SENTENCE_PAUSE_MS
+
+    initial_sentences = ["Processing..."]
+
+    job_id = str(uuid.uuid4())
+    await save_stream_job(job_id, body.prompt, voice, initial_sentences, pause_ms)
+
+    background_tasks.add_task(process_stream_job, job_id)
+
+    return StreamJobResponse(job_id=job_id, status="pending")
+
+
+@app.get("/api/stream/job/{job_id}", response_model=StreamJobStatusResponse)
+async def get_stream_job_status(
+    job_id: str,
+    _: HTTPAuthorizationCredentials = Depends(verify_token),
+):
+    """Poll for streaming job status with individual sentence audio."""
+    try:
+        uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID format")
+
+    job = await get_stream_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    sentences = [
+        SentenceAudio(
+            index=s["index"],
+            text=s["text"],
+            audio=s["audio"],
+            status=s["status"],
+        )
+        for s in job["sentences"]
+    ]
+
+    return StreamJobStatusResponse(
+        job_id=job["job_id"],
+        status=job["status"],
+        response=job["response_text"],
+        sentences=sentences,
+        combined_audio=job["combined_audio"] if job["status"] == "completed" else None,
+        voice=job["voice"],
+        error=job["error"] if job["status"] == "failed" else None,
     )
 
 
