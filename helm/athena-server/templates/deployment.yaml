@@ -45,21 +45,17 @@ spec:
                 secretKeyRef:
                   name: {{ include "athena-server.fullname" . }}-secrets
                   key: openai-api-key
-            - name: ATHENA_TTS_TOKEN
+            - name: AGENT_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "athena-server.fullname" . }}-secrets
-                  key: athena-tts-token
+                  key: agent-key
             - name: OPENAI_MODEL
               value: {{ .Values.openai.model | quote }}
             - name: OPENAI_TEMPERATURE
               value: {{ .Values.openai.temperature | quote }}
             - name: OPENAI_MAX_TOKENS
               value: {{ .Values.openai.maxTokens | quote }}
-            - name: ATHENA_TTS_URL
-              value: {{ .Values.athenaTts.url | quote }}
-            - name: TTS_TIMEOUT
-              value: {{ .Values.athenaTts.timeout | quote }}
             - name: DEFAULT_VOICE
               value: {{ .Values.defaultVoice | quote }}
             - name: FORMATTING_PREPROMPT
@@ -76,6 +72,14 @@ spec:
               value: {{ .Values.security.authFailBanThreshold | quote }}
             - name: AUTH_FAIL_BAN_DURATION_SECONDS
               value: {{ .Values.security.authFailBanDurationSeconds | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.redis.url | quote }}
+            - name: AGENT_JOB_TTL_SECONDS
+              value: {{ .Values.agent.jobTtlSeconds | quote }}
+            - name: AGENT_MISSED_HEARTBEATS
+              value: {{ .Values.agent.missedHeartbeats | quote }}
+            - name: AGENT_RETENTION_DAYS
+              value: {{ .Values.agent.retentionDays | quote }}
           startupProbe:
             httpGet:
               path: /health
