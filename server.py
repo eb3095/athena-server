@@ -212,6 +212,7 @@ class SpeakJobStatusResponse(BaseModel):
     status: str
     audio: Optional[str] = None
     error: Optional[str] = None
+    voice: Optional[str] = None
 
 
 def get_client_ip(request: Request) -> str:
@@ -454,6 +455,7 @@ async def get_agent_job_result(job_id: str) -> Optional[dict]:
         "status": job_data.get("status"),
         "result": json.loads(job_data.get("result", "null")),
         "error": job_data.get("error"),
+        "payload": json.loads(job_data.get("payload", "{}")),
     }
 
 
@@ -750,6 +752,7 @@ class JobStatusResponse(BaseModel):
     response: Optional[str] = None
     audio: Optional[str] = None
     error: Optional[str] = None
+    voice: Optional[str] = None
 
 
 @app.post("/api/prompt", response_model=PromptResponse)
@@ -870,6 +873,7 @@ async def get_prompt_job_status(
         response=job.response_text if job.status == "completed" else None,
         audio=job.audio_base64 if job.status == "completed" else None,
         error=job.error if job.status == "failed" else None,
+        voice=(job.speaker_voice or DEFAULT_VOICE) if job.status == "completed" and job.audio_base64 else None,
     )
 
 
@@ -1082,16 +1086,20 @@ async def speak_job_status(
     status = result.get("status", "pending")
     audio = None
     error = result.get("error")
+    voice = None
 
     if status == "completed":
         job_result = result.get("result", {})
         audio = job_result.get("audio") if job_result else None
+        payload = result.get("payload", {})
+        voice = payload.get("speaker")
 
     return SpeakJobStatusResponse(
         job_id=job_id,
         status=status,
         audio=audio,
         error=error if status == "failed" else None,
+        voice=voice,
     )
 
 
