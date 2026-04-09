@@ -10,6 +10,7 @@ LLM prompting API that wraps OpenAI for text generation with text-to-speech via 
 
 - OpenAI-powered text generation with configurable model and parameters
 - Distributed TTS via agent system (athena-tts agents register and process jobs)
+- **Streaming TTS** - Sentence-by-sentence audio generation for faster perceived response
 - Async job queue with polling for long-running requests
 - Agent heartbeat monitoring with automatic dead agent detection
 - Aggregated voice list from all active TTS agents
@@ -57,6 +58,7 @@ LLM prompting API that wraps OpenAI for text generation with text-to-speech via 
 | `AGENT_RETENTION_DAYS` | Days to retain agent registration | `30` |
 | `AGENT_JOB_TIMEOUT_MINUTES` | Minutes before pending/assigned jobs timeout | `30` |
 | `COMPLETED_JOB_RETENTION_HOURS` | Hours to retain completed jobs | `6` |
+| `STREAM_SENTENCE_PAUSE_MS` | Pause between sentences in combined streaming audio | `500` |
 | `FORMATTING_PREPROMPT` | System prompt for markdown formatting | See below |
 | `PERSONALITY_PREPROMPT` | System prompt for personality/behavior | See below |
 | `TTS_CONVERSION_PREPROMPT` | System prompt for converting display response to spoken form | See below |
@@ -146,6 +148,60 @@ Submit an async TTS-only job (no LLM, just text-to-speech).
 ### GET /api/speak/job/{job_id}
 
 Get the status of a speak job.
+
+### POST /api/stream/job
+
+Submit an async streaming prompt job. Breaks response into sentences and processes TTS in parallel for faster perceived response.
+
+**Request:**
+```json
+{
+  "prompt": "Tell me about the weather",
+  "speaker_voice": "voice-name"
+}
+```
+
+**Response (202 Accepted):**
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "pending"
+}
+```
+
+### GET /api/stream/job/{job_id}
+
+Get the status of a streaming job. Returns individual sentence audio as they complete.
+
+**Response (processing):**
+```json
+{
+  "job_id": "...",
+  "status": "processing",
+  "response": "The weather is nice today. It's sunny and warm.",
+  "sentences": [
+    {"index": 0, "text": "The weather is nice today.", "status": "completed", "audio": "base64..."},
+    {"index": 1, "text": "It's sunny and warm.", "status": "processing", "audio": null}
+  ],
+  "combined_audio": null,
+  "error": null
+}
+```
+
+**Response (completed):**
+```json
+{
+  "job_id": "...",
+  "status": "completed",
+  "response": "The weather is nice today. It's sunny and warm.",
+  "sentences": [
+    {"index": 0, "text": "The weather is nice today.", "status": "completed", "audio": "base64..."},
+    {"index": 1, "text": "It's sunny and warm.", "status": "completed", "audio": "base64..."}
+  ],
+  "combined_audio": "base64-all-sentences-with-pauses",
+  "error": null
+}
+```
 
 ### GET /api/voices
 
