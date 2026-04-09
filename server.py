@@ -93,7 +93,9 @@ AGENT_RETENTION_DAYS = int(os.environ.get("AGENT_RETENTION_DAYS", "30"))
 AGENT_RETENTION_SECONDS = AGENT_RETENTION_DAYS * 24 * 60 * 60
 AGENT_JOB_TIMEOUT_MINUTES = int(os.environ.get("AGENT_JOB_TIMEOUT_MINUTES", "30"))
 AGENT_JOB_TIMEOUT_SECONDS = AGENT_JOB_TIMEOUT_MINUTES * 60
-COMPLETED_JOB_RETENTION_HOURS = int(os.environ.get("COMPLETED_JOB_RETENTION_HOURS", "6"))
+COMPLETED_JOB_RETENTION_HOURS = int(
+    os.environ.get("COMPLETED_JOB_RETENTION_HOURS", "6")
+)
 COMPLETED_JOB_RETENTION_SECONDS = COMPLETED_JOB_RETENTION_HOURS * 60 * 60
 
 
@@ -116,6 +118,7 @@ class PromptJob:
     response_text: Optional[str] = None
     audio_base64: Optional[str] = None
     error: Optional[str] = None
+
 
 rate_limit_store: dict[str, list[float]] = defaultdict(list)
 auth_fail_store: dict[str, list[float]] = defaultdict(list)
@@ -306,8 +309,6 @@ async def call_openai(
     return response.choices[0].message.content or ""
 
 
-
-
 async def save_job(job: PromptJob):
     key = f"job:{job.job_id}"
     data = {}
@@ -319,7 +320,11 @@ async def save_job(job: PromptJob):
         else:
             data[k] = str(v)
     await redis_client.hset(key, mapping=data)
-    ttl = JOB_EXPIRY_SECONDS if job.status in ("completed", "failed") else JOB_EXPIRY_SECONDS * 2
+    ttl = (
+        JOB_EXPIRY_SECONDS
+        if job.status in ("completed", "failed")
+        else JOB_EXPIRY_SECONDS * 2
+    )
     await redis_client.expire(key, ttl)
 
 
@@ -351,7 +356,11 @@ async def update_job_status(job_id: str, status: str, **fields):
         else:
             updates[k] = str(v)
     await redis_client.hset(key, mapping=updates)
-    ttl = JOB_EXPIRY_SECONDS if status in ("completed", "failed") else JOB_EXPIRY_SECONDS * 2
+    ttl = (
+        JOB_EXPIRY_SECONDS
+        if status in ("completed", "failed")
+        else JOB_EXPIRY_SECONDS * 2
+    )
     await redis_client.expire(key, ttl)
 
 
@@ -384,9 +393,7 @@ async def poll_agent_job(agent_id: str, service_type: str) -> Optional[dict]:
         return None
 
     await redis_client.set(
-        f"jobs:{service_type}:assigned:{job_id}",
-        agent_id,
-        ex=AGENT_JOB_TTL_SECONDS
+        f"jobs:{service_type}:assigned:{job_id}", agent_id, ex=AGENT_JOB_TTL_SECONDS
     )
 
     await redis_client.hset(f"agent_job:{job_id}", "status", "assigned")
@@ -402,7 +409,11 @@ async def poll_agent_job(agent_id: str, service_type: str) -> Optional[dict]:
 
 
 async def complete_agent_job(
-    job_id: str, agent_id: str, status: str, result: Optional[dict], error: Optional[str]
+    job_id: str,
+    agent_id: str,
+    status: str,
+    result: Optional[dict],
+    error: Optional[str],
 ) -> bool:
     """Mark a job as completed or failed."""
     job_key = f"agent_job:{job_id}"
@@ -455,7 +466,9 @@ async def submit_tts_job_via_agent(text: str, speaker: str) -> str:
     return await create_agent_job("tts", payload)
 
 
-async def poll_agent_job_result(job_id: str, service_type: str, max_wait_seconds: int = 600) -> dict:
+async def poll_agent_job_result(
+    job_id: str, service_type: str, max_wait_seconds: int = 600
+) -> dict:
     """Poll for agent job completion. Returns result dict with 'audio' key for TTS jobs."""
     poll_interval = 2.0
     max_attempts = int(max_wait_seconds / poll_interval)
@@ -474,10 +487,14 @@ async def poll_agent_job_result(job_id: str, service_type: str, max_wait_seconds
         if status == "completed":
             return result.get("result", {})
         elif status == "failed":
-            raise Exception(f"{service_type} failed: {result.get('error', 'Unknown error')}")
+            raise Exception(
+                f"{service_type} failed: {result.get('error', 'Unknown error')}"
+            )
         elif status in ("pending", "assigned"):
             if attempts % 30 == 0:
-                in_queue = await redis_client.lpos(f"jobs:{service_type}:pending", job_id)
+                in_queue = await redis_client.lpos(
+                    f"jobs:{service_type}:pending", job_id
+                )
                 if in_queue is None:
                     job_data = await redis_client.hgetall(f"agent_job:{job_id}")
                     if job_data and job_data.get("status") == "pending":
@@ -494,7 +511,9 @@ async def recover_expired_agent_jobs():
         try:
             cursor = 0
             while True:
-                cursor, keys = await redis_client.scan(cursor, match="agent_job:*", count=100)
+                cursor, keys = await redis_client.scan(
+                    cursor, match="agent_job:*", count=100
+                )
 
                 for key in keys:
                     job_data = await redis_client.hgetall(key)
@@ -508,7 +527,9 @@ async def recover_expired_agent_jobs():
                     job_id = job_data.get("job_id")
                     service_type = job_data.get("service_type")
 
-                    assigned = await redis_client.exists(f"jobs:{service_type}:assigned:{job_id}")
+                    assigned = await redis_client.exists(
+                        f"jobs:{service_type}:assigned:{job_id}"
+                    )
                     if not assigned:
                         await redis_client.hset(key, "status", "pending")
                         await redis_client.hdel(key, "assigned_to", "assigned_at")
@@ -531,7 +552,9 @@ async def timeout_stale_jobs():
             # Timeout agent jobs (TTS jobs etc)
             cursor = 0
             while True:
-                cursor, keys = await redis_client.scan(cursor, match="agent_job:*", count=100)
+                cursor, keys = await redis_client.scan(
+                    cursor, match="agent_job:*", count=100
+                )
 
                 for key in keys:
                     job_data = await redis_client.hgetall(key)
@@ -549,11 +572,16 @@ async def timeout_stale_jobs():
                             error_msg = "No agents available to process job"
                         else:
                             error_msg = f"Job timed out after {AGENT_JOB_TIMEOUT_MINUTES} minutes"
-                        print(f"Timing out agent job {job_id} ({status}, age: {int(now - created_at)}s)")
-                        await redis_client.hset(key, mapping={
-                            "status": "failed",
-                            "error": error_msg,
-                        })
+                        print(
+                            f"Timing out agent job {job_id} ({status}, age: {int(now - created_at)}s)"
+                        )
+                        await redis_client.hset(
+                            key,
+                            mapping={
+                                "status": "failed",
+                                "error": error_msg,
+                            },
+                        )
 
                 if cursor == 0:
                     break
@@ -579,11 +607,16 @@ async def timeout_stale_jobs():
                             error_msg = "No agents available to process job"
                         else:
                             error_msg = f"Job timed out after {AGENT_JOB_TIMEOUT_MINUTES} minutes"
-                        print(f"Timing out job {job_id} ({status}, age: {int(now - created_at)}s)")
-                        await redis_client.hmset(key, {
-                            "status": "failed",
-                            "error": error_msg,
-                        })
+                        print(
+                            f"Timing out job {job_id} ({status}, age: {int(now - created_at)}s)"
+                        )
+                        await redis_client.hmset(
+                            key,
+                            {
+                                "status": "failed",
+                                "error": error_msg,
+                            },
+                        )
 
                 if cursor == 0:
                     break
@@ -603,7 +636,9 @@ async def cleanup_completed_jobs():
             # Cleanup agent jobs
             cursor = 0
             while True:
-                cursor, keys = await redis_client.scan(cursor, match="agent_job:*", count=100)
+                cursor, keys = await redis_client.scan(
+                    cursor, match="agent_job:*", count=100
+                )
 
                 for key in keys:
                     job_data = await redis_client.hgetall(key)
@@ -699,7 +734,9 @@ async def process_prompt_job(job_id: str):
         )
 
     except Exception as e:
-        await update_job_status(job_id, "failed", completed_at=time.time(), error=str(e))
+        await update_job_status(
+            job_id, "failed", completed_at=time.time(), error=str(e)
+        )
 
 
 class JobSubmitResponse(BaseModel):
@@ -741,7 +778,9 @@ async def prompt(
     display_system_prompt = f"{FORMATTING_PREPROMPT}\n\n{PERSONALITY_PREPROMPT}"
     display_response = await call_openai(display_system_prompt, request.prompt)
 
-    tts_text = await call_openai(TTS_CONVERSION_PREPROMPT, display_response, temperature=0.1)
+    tts_text = await call_openai(
+        TTS_CONVERSION_PREPROMPT, display_response, temperature=0.1
+    )
 
     tts_job_id = await submit_tts_job_via_agent(tts_text, voice)
     result = await poll_agent_job_result(tts_job_id, "tts")
@@ -897,7 +936,9 @@ async def complete_agent_job_endpoint(
     )
 
     if not success:
-        raise HTTPException(status_code=404, detail="Job not found or not assigned to this agent")
+        raise HTTPException(
+            status_code=404, detail="Job not found or not assigned to this agent"
+        )
 
     return AgentCompleteResponse(status="ok")
 
@@ -962,14 +1003,16 @@ async def list_agents(
                 except json.JSONDecodeError:
                     pass
 
-            agents.append(AgentInfo(
-                agent_id=data["agent_id"],
-                service_type=data.get("service_type", "unknown"),
-                registered_at=float(data.get("registered_at", 0)),
-                last_seen=last_seen,
-                status=status,
-                speakers=speakers,
-            ))
+            agents.append(
+                AgentInfo(
+                    agent_id=data["agent_id"],
+                    service_type=data.get("service_type", "unknown"),
+                    registered_at=float(data.get("registered_at", 0)),
+                    last_seen=last_seen,
+                    status=status,
+                    speakers=speakers,
+                )
+            )
 
         if cursor == 0:
             break
