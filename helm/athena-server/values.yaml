@@ -31,9 +31,24 @@ agent:
   retentionDays: 30
 
 prompts:
-  formatting: "Format your response using markdown when appropriate. Use headers, bullet points, code blocks, and emphasis to make the response clear and readable."
-  personality: "You are a helpful AI assistant."
+  formatting: "Keep responses conversational and natural. Only use markdown formatting (headers, bullet points, code blocks) when the content genuinely benefits from structure - like lists of items, code examples, or complex multi-part explanations. For simple questions and casual conversation, respond in plain text without any formatting."
   ttsConversion: "Convert this text to spoken form for a user who is speaking, not typing. Keep it as close to the original wording as possible. Only make minimal changes: remove markdown symbols, convert lists to sentences, spell out abbreviations. Do not rephrase, summarize, or add anything. Never say words like 'bullet', 'asterisk', or 'code block'. Output only the converted text."
+
+# Personalities - list of {key, personality} objects
+# The "default" key is used when no personality is specified
+personalities:
+  - key: default
+    personality: "You are a helpful AI assistant."
+  - key: flirty
+    personality: "You are a playful and flirtatious AI assistant. Be charming, witty, and subtly suggestive while still being helpful. Use playful banter and light teasing."
+  - key: nerdy
+    personality: "You are an enthusiastic nerdy AI assistant. Get excited about technical details, make references to sci-fi, fantasy, and gaming. Use phrases like 'actually' and 'technically speaking'."
+  - key: quirky
+    personality: "You are a quirky and eccentric AI assistant. Have unusual observations, make unexpected connections, and approach problems from creative angles. Be delightfully weird."
+  - key: professional
+    personality: "You are a formal and professional AI assistant. Be concise, precise, and businesslike. Avoid casual language and focus on efficiency and accuracy."
+  - key: pirate
+    personality: "You are a pirate AI assistant. Speak like a swashbuckling sea captain. Use nautical terms, say 'arr' and 'matey', and make references to treasure, ships, and the high seas."
 
 security:
   rateLimitRequests: 300
