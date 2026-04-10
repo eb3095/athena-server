@@ -26,6 +26,27 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if and .Values.persistence.voices.enabled .Values.persistence.voices.initVoices }}
+      initContainers:
+        - name: init-voices
+          image: curlimages/curl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              {{- range .Values.persistence.voices.initVoices }}
+              if [ ! -f /voices/{{ .name }}.wav ]; then
+                echo "Downloading {{ .name }}..."
+                curl -fsSL -o /voices/{{ .name }}.wav "{{ .url }}"
+              else
+                echo "{{ .name }} already exists, skipping"
+              fi
+              {{- end }}
+              echo "Voice init complete"
+          volumeMounts:
+            - name: voices
+              mountPath: /voices
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -80,6 +101,15 @@ spec:
               value: {{ .Values.agent.missedHeartbeats | quote }}
             - name: AGENT_RETENTION_DAYS
               value: {{ .Values.agent.retentionDays | quote }}
+            {{- if .Values.persistence.voices.enabled }}
+            - name: VOICES_DIR
+              value: "/voices"
+            {{- end }}
+          {{- if .Values.persistence.voices.enabled }}
+          volumeMounts:
+            - name: voices
+              mountPath: /voices
+          {{- end }}
           startupProbe:
             httpGet:
               path: /health
@@ -99,3 +129,9 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      {{- if .Values.persistence.voices.enabled }}
+      volumes:
+        - name: voices
+          persistentVolumeClaim:
+            claimName: {{ include "athena-server.fullname" . }}-voices
+      {{- end }}

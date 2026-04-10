@@ -1,0 +1,17 @@
+{{- if .Values.persistence.voices.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "athena-server.fullname" . }}-voices
+  labels:
+    {{- include "athena-server.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.voices.accessMode }}
+  {{- if .Values.persistence.voices.storageClass }}
+  storageClassName: {{ .Values.persistence.voices.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.voices.size }}
+{{- end }}

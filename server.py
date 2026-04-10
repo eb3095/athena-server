@@ -16,6 +16,9 @@ import time
 import uuid
 import wave
 import asyncio
+import hashlib
+import aiofiles
+import aiofiles.os
 import redis.asyncio as redis
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -103,6 +106,8 @@ COMPLETED_JOB_RETENTION_HOURS = int(
 COMPLETED_JOB_RETENTION_SECONDS = COMPLETED_JOB_RETENTION_HOURS * 60 * 60
 
 STREAM_SENTENCE_PAUSE_MS = int(os.environ.get("STREAM_SENTENCE_PAUSE_MS", "500"))
+
+VOICES_DIR = os.environ.get("VOICES_DIR", "/voices")
 
 
 class JobStatus(str, Enum):
@@ -443,6 +448,110 @@ def verify_agent_key(request: Request):
     if not secrets.compare_digest(agent_key, AGENT_KEY):
         record_auth_failure(ip)
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def verify_token_or_agent_key(request: Request):
+    """Verify either Bearer token or X-Agent-Key header."""
+    ip = get_client_ip(request)
+
+    if is_ip_banned(ip):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    check_rate_limit(ip)
+
+    # Try agent key first
+    agent_key = request.headers.get("X-Agent-Key", "")
+    if agent_key and AGENT_KEY and secrets.compare_digest(agent_key, AGENT_KEY):
+        return
+
+    # Try bearer token
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        if AUTH_TOKEN and secrets.compare_digest(token, AUTH_TOKEN):
+            return
+
+    record_auth_failure(ip)
+    raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def get_voice_checksum(filepath: str) -> str:
+    """Calculate MD5 checksum of a voice file."""
+    hasher = hashlib.md5()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def get_available_voices() -> list[dict]:
+    """Get list of available voices from local storage with metadata."""
+    voices = []
+    try:
+        if not os.path.exists(VOICES_DIR):
+            os.makedirs(VOICES_DIR, exist_ok=True)
+            return voices
+        
+        for filename in os.listdir(VOICES_DIR):
+            if filename.endswith(".wav"):
+                filepath = os.path.join(VOICES_DIR, filename)
+                name = filename[:-4]
+                try:
+                    checksum = get_voice_checksum(filepath)
+                    size = os.path.getsize(filepath)
+                    voices.append({
+                        "name": name,
+                        "checksum": checksum,
+                        "size": size
+                    })
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return sorted(voices, key=lambda v: v["name"])
+
+
+def get_voice_names() -> list[str]:
+    """Get list of available voice names."""
+    return [v["name"] for v in get_available_voices()]
+
+
+async def save_voice_file(name: str, content: bytes) -> dict:
+    """Save a voice file to storage."""
+    os.makedirs(VOICES_DIR, exist_ok=True)
+    
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '', name)
+    if not safe_name:
+        raise ValueError("Invalid voice name")
+    
+    filepath = os.path.join(VOICES_DIR, f"{safe_name}.wav")
+    
+    async with aiofiles.open(filepath, "wb") as f:
+        await f.write(content)
+    
+    checksum = get_voice_checksum(filepath)
+    size = os.path.getsize(filepath)
+    
+    return {
+        "name": safe_name,
+        "checksum": checksum,
+        "size": size
+    }
+
+
+async def delete_voice_file(name: str) -> bool:
+    """Delete a voice file from storage."""
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '', name)
+    if not safe_name:
+        return False
+    
+    filepath = os.path.join(VOICES_DIR, f"{safe_name}.wav")
+    
+    try:
+        await aiofiles.os.remove(filepath)
+        return True
+    except OSError:
+        return False
 
 
 async def call_openai(
@@ -1468,35 +1577,99 @@ async def prompt(
 async def voices(
     _: HTTPAuthorizationCredentials = Depends(verify_token),
 ):
-    """Get available voices aggregated from active TTS agents."""
-    all_voices = set()
-    now = time.time()
-    dead_threshold = AGENT_HEARTBEAT_INTERVAL * AGENT_MISSED_HEARTBEATS
+    """Get available voice names from server storage."""
+    return {"voices": get_voice_names()}
 
-    cursor = 0
-    while True:
-        cursor, keys = await redis_client.scan(cursor, match="agent:tts:*", count=100)
 
-        for key in keys:
-            data = await redis_client.hgetall(key)
-            if not data:
-                continue
+@app.get("/api/voices/list")
+async def voices_list(
+    request: Request,
+    _: None = Depends(verify_token_or_agent_key),
+):
+    """Get available voices with metadata (name, checksum, size). Accepts Bearer token or Agent Key."""
+    return {"voices": get_available_voices()}
 
-            last_seen = float(data.get("last_seen", 0))
-            if now - last_seen > dead_threshold:
-                continue
 
-            if data.get("speakers"):
-                try:
-                    speakers = json.loads(data["speakers"])
-                    all_voices.update(speakers)
-                except json.JSONDecodeError:
-                    pass
+@app.get("/api/voices/{name}/download")
+async def voice_download(
+    name: str,
+    request: Request,
+    _: None = Depends(verify_agent_key),
+):
+    """Download a voice file. Requires agent key authentication."""
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '', name)
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="Invalid voice name")
+    
+    filepath = os.path.join(VOICES_DIR, f"{safe_name}.wav")
+    
+    if not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail=f"Voice '{safe_name}' not found")
+    
+    try:
+        async with aiofiles.open(filepath, "rb") as f:
+            content = await f.read()
+        
+        return Response(
+            content=content,
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_name}.wav"',
+                "X-Voice-Checksum": get_voice_checksum(filepath)
+            }
+        )
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read voice file: {e}")
 
-        if cursor == 0:
-            break
 
-    return {"voices": sorted(all_voices)}
+@app.post("/api/voices/{name}/upload")
+async def voice_upload(
+    name: str,
+    request: Request,
+    _: None = Depends(verify_agent_key),
+):
+    """Upload a voice file. Requires agent key authentication."""
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '', name)
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="Invalid voice name")
+    
+    try:
+        content = await request.body()
+        if not content:
+            raise HTTPException(status_code=400, detail="No content provided")
+        
+        if len(content) > 50 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="File too large (max 50MB)")
+        
+        result = await save_voice_file(safe_name, content)
+        return {"status": "success", "voice": result}
+    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save voice file: {e}")
+
+
+@app.delete("/api/voices/{name}")
+async def voice_delete(
+    name: str,
+    request: Request,
+    _: None = Depends(verify_agent_key),
+):
+    """Delete a voice file. Requires agent key authentication."""
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '', name)
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="Invalid voice name")
+    
+    filepath = os.path.join(VOICES_DIR, f"{safe_name}.wav")
+    
+    if not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail=f"Voice '{safe_name}' not found")
+    
+    if await delete_voice_file(safe_name):
+        return {"status": "success", "message": f"Voice '{safe_name}' deleted"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete voice file")
 
 
 @app.post("/api/prompt/job", response_model=JobSubmitResponse, status_code=202)

@@ -13,7 +13,7 @@ LLM prompting API that wraps OpenAI for text generation with text-to-speech via 
 - **Streaming TTS** - Sentence-by-sentence audio generation for faster perceived response
 - Async job queue with polling for long-running requests
 - Agent heartbeat monitoring with automatic dead agent detection
-- Aggregated voice list from all active TTS agents
+- **Central voice management** - Server stores and distributes voice files to TTS agents
 - Dual-prompt strategy: markdown-formatted response for display, plain text for TTS
 - Configurable system prompts for formatting and personality
 - Job timeout and automatic cleanup of stale/completed jobs
@@ -52,6 +52,7 @@ LLM prompting API that wraps OpenAI for text generation with text-to-speech via 
 | `OPENAI_TEMPERATURE` | Sampling temperature | `0.7` |
 | `OPENAI_MAX_TOKENS` | Maximum tokens in response | `4096` |
 | `DEFAULT_VOICE` | Default speaker voice name | |
+| `VOICES_DIR` | Directory for voice file storage | `/voices` |
 | `AGENT_KEY` | Shared secret for agent authentication | (required for agents) |
 | `AGENT_JOB_TTL_SECONDS` | How long agent jobs stay in queue | `300` |
 | `AGENT_MISSED_HEARTBEATS` | Heartbeats missed before agent is "dead" | `3` |
@@ -280,12 +281,58 @@ Generate a short summary/title from text.
 
 ### GET /api/voices
 
-List available voices from active TTS agents.
+List available voice names from server storage.
 
 **Response:**
 ```json
 {
-  "voices": ["voice1", "voice2", "voice3"]
+  "voices": ["freeman", "gellar", "voice3"]
+}
+```
+
+### GET /api/voices/list
+
+List available voices with metadata (name, checksum, size).
+
+**Response:**
+```json
+{
+  "voices": [
+    {"name": "freeman", "checksum": "abc123...", "size": 1234567},
+    {"name": "gellar", "checksum": "def456...", "size": 2345678}
+  ]
+}
+```
+
+### GET /api/voices/{name}/download
+
+Download a voice file. Requires agent key authentication (X-Agent-Key header).
+
+**Response:** WAV file with `X-Voice-Checksum` header.
+
+### POST /api/voices/{name}/upload
+
+Upload a voice file. Requires agent key authentication (X-Agent-Key header).
+
+**Request body:** Raw WAV file content (max 50MB).
+
+**Response:**
+```json
+{
+  "status": "success",
+  "voice": {"name": "newvoice", "checksum": "ghi789...", "size": 3456789}
+}
+```
+
+### DELETE /api/voices/{name}
+
+Delete a voice file. Requires agent key authentication (X-Agent-Key header).
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Voice 'voicename' deleted"
 }
 ```
 
@@ -320,9 +367,11 @@ These endpoints are used by athena-tts agents:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/agents/register` | POST | Register agent with server |
-| `/api/agents/heartbeat` | POST | Send heartbeat (includes speaker list) |
+| `/api/agents/heartbeat` | POST | Send heartbeat |
 | `/api/agents/jobs/poll` | POST | Poll for available jobs |
 | `/api/agents/jobs/{id}/complete` | POST | Report job completion |
+| `/api/voices/list` | GET | Get voice list with checksums (for sync) |
+| `/api/voices/{name}/download` | GET | Download voice file |
 
 ## Usage
 
@@ -409,6 +458,9 @@ helm uninstall athena-server
 | `agent.retentionDays` | Agent retention days | `30` |
 | `agent.jobTimeoutMinutes` | Job timeout | `30` |
 | `agent.completedJobRetentionHours` | Completed job retention | `6` |
+| `persistence.voices.enabled` | Enable voice storage PVC | `false` |
+| `persistence.voices.size` | Voice storage size | `1Gi` |
+| `persistence.voices.storageClass` | Storage class for PVC | `""` |
 | `redis.enabled` | Deploy Redis with chart | `true` |
 | `redis.url` | Redis URL | `redis://athena-redis:6379` |
 

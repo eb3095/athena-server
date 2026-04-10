@@ -49,6 +49,21 @@ resources:
     memory: "512Mi"
     cpu: "500m"
 
+persistence:
+  voices:
+    enabled: false
+    size: 1Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    # List of voices to download on startup
+    # When persistence.voices.enabled is true, these are downloaded by init container
+    initVoices:
+      - name: freeman
+        url: https://github.com/eb3095/athena-server/releases/download/voices/freeman.wav
+    # Add more voices as needed:
+    # - name: custom
+    #   url: https://your-host.com/voices/custom.wav
+
 ingress:
   enabled: false
   host: ""
