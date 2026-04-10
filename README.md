@@ -62,7 +62,7 @@ LLM prompting API that wraps OpenAI for text generation with text-to-speech via 
 | `STREAM_SENTENCE_PAUSE_MS` | Pause between sentences in combined streaming audio | `500` |
 | `MAX_CONVERSATION_MESSAGES` | Maximum messages in conversation context | `20` |
 | `FORMATTING_PREPROMPT` | System prompt for markdown formatting | See below |
-| `PERSONALITY_PREPROMPT` | System prompt for personality/behavior | See below |
+| `PERSONALITIES` | JSON array of personality objects `[{key, personality}]` | See below |
 | `TTS_CONVERSION_PREPROMPT` | System prompt for converting display response to spoken form | See below |
 | `RATE_LIMIT_REQUESTS` | Max requests per window | `300` |
 | `RATE_LIMIT_WINDOW_SECONDS` | Rate limit window duration | `60` |
@@ -73,13 +73,22 @@ LLM prompting API that wraps OpenAI for text generation with text-to-speech via 
 
 **Formatting Preprompt:**
 ```
-Format your response using markdown when appropriate. Use headers, bullet points, code blocks, and emphasis to make the response clear and readable.
+Keep responses conversational and natural. Only use markdown formatting (headers, bullet points, code blocks) when the content genuinely benefits from structure - like lists of items, code examples, or complex multi-part explanations. For simple questions and casual conversation, respond in plain text without any formatting.
 ```
 
-**Personality Preprompt:**
+**Default Personalities:**
+```json
+[
+  {"key": "default", "personality": "You are a helpful AI assistant."},
+  {"key": "flirty", "personality": "You are a playful and flirtatious AI assistant..."},
+  {"key": "nerdy", "personality": "You are an enthusiastic nerdy AI assistant..."},
+  {"key": "quirky", "personality": "You are a quirky and eccentric AI assistant..."},
+  {"key": "professional", "personality": "You are a formal and professional AI assistant..."},
+  {"key": "pirate", "personality": "You are a pirate AI assistant..."}
+]
 ```
-You are a helpful AI assistant.
-```
+
+Clients can query available personalities via `GET /api/personalities` and select one by key when making requests.
 
 **TTS Conversion Preprompt:**
 ```
@@ -87,6 +96,20 @@ Convert this text to spoken form for a user who is speaking, not typing. Keep it
 ```
 
 ## API
+
+### GET /api/personalities
+
+List available personalities that clients can use.
+
+**Response:**
+```json
+{
+  "personalities": [
+    {"key": "default", "personality": "You are a helpful AI assistant."},
+    {"key": "pirate", "personality": "You are a pirate AI assistant..."}
+  ]
+}
+```
 
 ### POST /api/prompt/job
 
@@ -97,9 +120,13 @@ Submit an async prompt job. Returns immediately with job ID for polling.
 {
   "prompt": "What is the capital of France?",
   "speaker": true,
-  "speaker_voice": "voice-name"
+  "speaker_voice": "voice-name",
+  "personality": "pirate",
+  "personality_custom": null
 }
 ```
+
+Use `personality` to select a server-defined personality by key, or `personality_custom` to provide a custom personality prompt. If neither is specified, uses "default".
 
 **Response (202 Accepted):**
 ```json
