@@ -87,6 +87,30 @@ spec:
             - name: PERSONALITIES
               value: {{ .Values.personalities | toJson | quote }}
             {{- end }}
+            {{- if .Values.council }}
+            {{- if .Values.council.members }}
+            - name: COUNCIL_MEMBERS
+              value: {{ .Values.council.members | toJson | quote }}
+            {{- end }}
+            {{- if .Values.council.prompts }}
+            {{- if .Values.council.prompts.universal }}
+            - name: COUNCIL_UNIVERSAL_PROMPT
+              value: {{ .Values.council.prompts.universal | quote }}
+            {{- end }}
+            {{- if .Values.council.prompts.note }}
+            - name: COUNCIL_NOTE_PROMPT
+              value: {{ .Values.council.prompts.note | quote }}
+            {{- end }}
+            {{- if .Values.council.prompts.finalNote }}
+            - name: COUNCIL_FINAL_NOTE_PROMPT
+              value: {{ .Values.council.prompts.finalNote | quote }}
+            {{- end }}
+            {{- if .Values.council.prompts.advisor }}
+            - name: COUNCIL_ADVISOR_PROMPT
+              value: {{ .Values.council.prompts.advisor | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             - name: RATE_LIMIT_REQUESTS
               value: {{ .Values.security.rateLimitRequests | quote }}
             - name: RATE_LIMIT_WINDOW_SECONDS

@@ -7,6 +7,7 @@ RUN useradd -r -u 1000 appuser
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY athena/ ./athena/
 COPY server.py .
 
 USER appuser

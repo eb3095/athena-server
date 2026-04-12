@@ -13,10 +13,10 @@ ATHENA_TTS_TOKEN ?= test-token
 DEFAULT_VOICE ?=
 
 build:
-	docker buildx build --platform linux/amd64 -t $(IMAGE):$(TAG) --load .
+	docker buildx build --platform linux/amd64,linux/arm64 -t $(IMAGE):$(TAG) --push .
 
-push: build
-	docker push $(IMAGE):$(TAG)
+build-local:
+	docker buildx build --platform linux/amd64 -t $(IMAGE):$(TAG) --load .
 
 run:
 	docker run -d \

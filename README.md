@@ -9,6 +9,7 @@ LLM prompting API that wraps OpenAI for text generation with text-to-speech via 
 ## Features
 
 - OpenAI-powered text generation with configurable model and parameters
+- **Council Mode** - Multi-advisor AI consultation with parallel processing and synthesis
 - Distributed TTS via agent system (athena-tts agents register and process jobs)
 - **Streaming TTS** - Sentence-by-sentence audio generation for faster perceived response
 - Async job queue with polling for long-running requests
@@ -68,6 +69,8 @@ LLM prompting API that wraps OpenAI for text generation with text-to-speech via 
 | `RATE_LIMIT_WINDOW_SECONDS` | Rate limit window duration | `60` |
 | `AUTH_FAIL_BAN_THRESHOLD` | Auth failures before IP ban | `3` |
 | `AUTH_FAIL_BAN_DURATION_SECONDS` | Ban duration | `604800` (1 week) |
+| `COUNCIL_MEMBERS` | JSON array of council member configs `[{name, prompt}]` | See below |
+| `COUNCIL_ADVISOR_PROMPT` | System prompt for the advisor that synthesizes responses | See below |
 
 ### Default Preprompts
 
@@ -268,6 +271,69 @@ Submit a streaming conversation job with message history. Same as conversation/j
 ### GET /api/conversation/stream/job/{job_id}
 
 Get the status of a streaming conversation job.
+
+### GET /api/council/members
+
+List available council members.
+
+**Response:**
+```json
+{
+  "members": [
+    {"name": "The Strategist", "prompt": "You are a strategic thinker..."},
+    {"name": "The Skeptic", "prompt": "You question assumptions..."}
+  ]
+}
+```
+
+### POST /api/council/job
+
+Submit an async council job. Multiple AI advisors discuss the question, then an Advisor synthesizes their perspectives.
+
+**Request:**
+```json
+{
+  "messages": [
+    {"role": "user", "content": "Should I change careers?"}
+  ],
+  "speaker_voice": "voice-name",
+  "council_members": ["The Strategist", "The Skeptic"],
+  "custom_members": [{"name": "Custom", "prompt": "You are..."}],
+  "user_traits": ["ambitious", "risk-averse"],
+  "user_goal": "Find fulfilling work"
+}
+```
+
+**Response (completed):**
+```json
+{
+  "job_id": "...",
+  "status": "completed",
+  "advisor_response": "Based on the council's discussion...",
+  "member_responses": [
+    {
+      "name": "The Strategist",
+      "initial_response": "...",
+      "notes": [{"from": "The Skeptic", "note": "..."}],
+      "final_note": "..."
+    }
+  ],
+  "audio": "base64...",
+  "error": null
+}
+```
+
+### GET /api/council/job/{job_id}
+
+Get the status of a council job.
+
+### POST /api/council/stream/job
+
+Submit a streaming council job with sentence-by-sentence audio.
+
+### GET /api/council/stream/job/{job_id}
+
+Get the status of a streaming council job.
 
 ### POST /api/format/text
 
