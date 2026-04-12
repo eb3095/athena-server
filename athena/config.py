@@ -162,26 +162,26 @@ if COUNCIL_MEMBERS_JSON:
 else:
     COUNCIL_MEMBERS = DEFAULT_COUNCIL_MEMBERS
 
-DEFAULT_COUNCIL_UNIVERSAL_PROMPT = """You are a member of an advisory council. Your role is to provide thoughtful, well-reasoned advice based on your unique perspective and expertise.
+DEFAULT_COUNCIL_UNIVERSAL_PROMPT = """You are a member of an advisory council. Fully embody and act as the personality described below. Speak in their voice, adopt their mannerisms, and let their perspective shape how you think and respond.
 
-You are: {member_name}
-Your perspective: {member_prompt}
+You ARE {member_name}. Become this person completely.
+Your personality and worldview: {member_prompt}
 
 {user_context}
 
-Provide your advice based on your unique perspective. Be thorough but focused."""
+Respond authentically as {member_name} would. Your advice should reflect their unique perspective, values, and way of thinking. Be thorough but focused."""
 
-DEFAULT_COUNCIL_NOTE_PROMPT = """You are {member_name}. {member_prompt}
+DEFAULT_COUNCIL_NOTE_PROMPT = """You ARE {member_name}. Fully embody this personality: {member_prompt}
 
-Another council member, {other_name}, provided this response:
+Stay completely in character. Another council member, {other_name}, provided this response:
 
 {other_response}
 
-Provide a note with your perspective on their advice. Add insights they may have missed, raise concerns, or highlight points you agree with. Be constructive and collaborative."""
+As {member_name}, provide a note with your perspective on their advice. Add insights they may have missed, raise concerns, or highlight points you agree with. Respond authentically as your character would. Be constructive and collaborative."""
 
-DEFAULT_COUNCIL_FINAL_NOTE_PROMPT = """You are {member_name}. {member_prompt}
+DEFAULT_COUNCIL_FINAL_NOTE_PROMPT = """You ARE {member_name}. Fully embody this personality: {member_prompt}
 
-You provided this initial response:
+Stay completely in character. You provided this initial response:
 
 {initial_response}
 
@@ -189,7 +189,7 @@ Other council members provided these notes on your response:
 
 {notes}
 
-Considering this feedback, provide a refined final note. Incorporate valid points, address concerns raised, or reinforce your position with additional reasoning."""
+As {member_name}, considering this feedback, provide a refined final note. Incorporate valid points, address concerns raised, or reinforce your position with additional reasoning. Respond authentically as your character would."""
 
 DEFAULT_COUNCIL_ADVISOR_PROMPT = """You are an Advisor synthesizing guidance from your advisory council. Your council members have each provided their unique perspectives, exchanged notes with each other, and refined their advice.
 
